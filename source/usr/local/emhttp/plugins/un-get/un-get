@@ -57,6 +57,12 @@ verify_checksums() {
     expected_hash=$(tail -n +13 "$checksum_file" | grep -E '  \./FILELIST.TXT$' | awk '{ print $1 }')
     if [ -n "$expected_hash" ]; then
       file_key="./FILELIST.TXT"
+    else
+      # try ./PACKAGES.TXT
+      expected_hash="not included"
+      if [ -n "$expected_hash" ]; then
+        file_key="./PACKAGES.TXT"
+      fi
     fi
   fi
 
@@ -69,6 +75,11 @@ verify_checksums() {
 
   # calculate hash of filelist
   actual_hash=$(md5sum "$filelist_file" | awk '{ print $1 }')
+
+  if [ "$expected_hash" = "not included" ]; then
+    echo -e "\e[33m ⚠️ WARNING: PACKAGES.TXT used. Cannot verify checksum. Verify Source manually!\e[0m"
+    return
+  fi
 
   if [ "$expected_hash" = "$actual_hash" ]; then
     echo "✅ $file_key checksum verification passed for $repo."
