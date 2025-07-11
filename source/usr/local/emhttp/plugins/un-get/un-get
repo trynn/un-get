@@ -12,6 +12,8 @@ download_checksums() {
     if [ -f /tmp/un-get/filelist-${2}.old ]; then
       rm -f /tmp/un-get/filelist-${2}.old /tmp/un-get/checksums-${2}.old
     fi
+
+    verify_checksums "$2"
   else
     rm -f /tmp/un-get/filelist-${2}
     rm -f /tmp/un-get/checksums-${2}
@@ -22,6 +24,60 @@ download_checksums() {
     else
       echo "Can't fetch checksums from repository $2, please try again later...!"
     fi
+  fi
+}
+
+verify_checksums() {
+  local repo="$1"
+
+  local filelist_file="/tmp/un-get/filelist-${repo}"
+  if [ ! -f "$filelist_file" ]; then
+    echo "No downloaded FILE_LIST/FILELIST.TXT found for $repo, cannot verify checksum."
+    return
+  fi
+
+  local checksum_file="/tmp/un-get/checksums-${repo}"
+  if [ ! -f "$checksum_file" ]; then
+    echo "No checksum file found for $repo, skipping verification."
+    return
+  fi
+
+  echo "Verifying MD5 checksums for repository $repo..."
+
+  local expected_hash=""
+  local actual_hash=""
+  local file_key=""
+
+  # try ./FILE_LIST first
+  expected_hash=$(tail -n +13 "$checksum_file" | grep -E '  \./FILE_LIST$' | awk '{ print $1 }')
+  if [ -n "$expected_hash" ]; then
+    file_key="./FILE_LIST"
+  else
+    # try ./FILELIST.TXT
+    expected_hash=$(tail -n +13 "$checksum_file" | grep -E '  \./FILELIST.TXT$' | awk '{ print $1 }')
+    if [ -n "$expected_hash" ]; then
+      file_key="./FILELIST.TXT"
+    fi
+  fi
+
+  if [ -z "$expected_hash" ]; then
+    echo "❌ No FILE_LIST or FILELIST.TXT checksum entry found in $checksum_file"
+    echo "  → File will be removed to avoid using an unverified source."
+    rm -f "$filelist_file"
+    return
+  fi
+
+  # calculate hash of filelist
+  actual_hash=$(md5sum "$filelist_file" | awk '{ print $1 }')
+
+  if [ "$expected_hash" = "$actual_hash" ]; then
+    echo "✅ $file_key checksum verification passed for $repo."
+  else
+    echo "❌ $file_key checksum mismatch for $repo!"
+    echo "Expected: $expected_hash"
+    echo "Actual:   $actual_hash"
+    echo "  → Deleting corrupted filelist to prevent usage."
+    rm -f "$filelist_file"
   fi
 }
 
