@@ -27,27 +27,63 @@ download_checksums() {
 
 download_filelist() {
   echo "Please wait obtaining package list from repository $2..."
-  if wget -q --show-progress --progress=dot:mega -O /tmp/un-get/filelist-${2} "${1}/FILE_LIST" ; then
-    echo "Package list from repository $2 successfully downloaded!"
+
+  local base_url="$1"
+  local repo_id="$2"
+  local filelist_path="/tmp/un-get/filelist-${repo_id}"
+  local tmp_packages_txt="/tmp/un-get/packages-${repo_id}.txt"
+
+  if wget -q --show-progress --progress=dot:mega -O "$filelist_path" "${base_url}/FILE_LIST"; then
+    echo "Package list from repository $repo_id successfully downloaded (FILE_LIST)."
     echo
-    download_checksums "$1" "$2"
-  else
-    # Workaround from repositories which use 'FILELIST.TXT' instead of 'FILE_LIST' eg. Conraids repository
-    if wget -q --show-progress --progress=dot:mega -O /tmp/un-get/filelist-${2} "${1}/FILELIST.TXT" ; then
-      echo "Package list from repository $2 successfully downloaded!"
-      echo
-      download_checksums "$1" "$2"
-    else
-      rm -f /tmp/un-get/filelist-${2}
-      if [ -f /tmp/un-get/filelist-${2}.old ]; then
-        echo "Can't fetch package list, restoring old list, please try again later...!"
-        mv /tmp/un-get/filelist-${2}.old /tmp/un-get/filelist-${2}
-        mv /tmp/un-get/checksums-${2}.old /tmp/un-get/checksums-${2}
-      else
-        echo "Can't fetch package list from repository $2, please try again later...!"
-      fi
-    fi
+    download_checksums "$base_url" "$repo_id"
+    return
   fi
+
+  if wget -q --show-progress --progress=dot:mega -O "$filelist_path" "${base_url}/FILELIST.TXT"; then
+    echo "Package list from repository $repo_id successfully downloaded (FILELIST.TXT)."
+    echo
+    download_checksums "$base_url" "$repo_id"
+    return
+  fi
+
+  if wget -q --show-progress --progress=dot:mega -O "$tmp_packages_txt" "${base_url}/PACKAGES.TXT"; then
+    echo "PACKAGES.TXT found for repository $repo_id. Generating synthetic file list..."
+    generate_filelist_from_packages "$tmp_packages_txt" "$filelist_path"
+    echo "Synthetic package list created at $filelist_path"
+    rm -f "$tmp_packages_txt"
+    echo
+    download_checksums "$base_url" "$repo_id"
+    return
+  fi
+
+  rm -f "$filelist_path"
+  if [ -f "${filelist_path}.old" ]; then
+    echo "Can't fetch package list, restoring old list, please try again later...!"
+    mv "${filelist_path}.old" "$filelist_path"
+    mv "/tmp/un-get/checksums-${repo_id}.old" "/tmp/un-get/checksums-${repo_id}"
+  else
+    echo "Can't fetch package list from repository $repo_id, please try again later...!"
+  fi
+}
+
+generate_filelist_from_packages() {
+  local packages_txt="$1"
+  local output_file="$2"
+
+  echo "# Auto-generated FILELIST.TXT from PACKAGES.TXT" > "$output_file"
+  echo "# Generated on $(date)" >> "$output_file"
+  echo >> "$output_file"
+
+  awk '
+    /^PACKAGE NAME:/     { pkg = $3 }
+    /^PACKAGE LOCATION:/ {
+      loc = $3
+      # Normalize leading ./ if missing
+      if (loc !~ /^\.\//) loc = "./" loc
+      print loc "/" pkg
+    }
+  ' "$packages_txt" >> "$output_file"
 }
 
 update() {
